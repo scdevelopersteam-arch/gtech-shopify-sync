@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gtech ⇄ Shopify Sync</title>
+<style>
+  :root{--bg:#f6f5f2;--card:#fff;--ink:#1f2328;--mut:#6b7078;--line:#e4e2dc;--acc:#0f766e;--acc2:#115e59;--warn:#b45309;--bad:#b91c1c;--ok:#15803d}
+  *{box-sizing:border-box}
+  body{margin:0;font:14px/1.45 "Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--ink)}
+  header{background:#12312e;color:#fff;padding:14px 24px;display:flex;align-items:center;gap:16px}
+  header h1{font-size:18px;margin:0;font-weight:600}
+  header .sub{opacity:.7;font-size:12px}
+  nav{display:flex;gap:4px;padding:0 24px;background:#12312e}
+  nav button{background:none;border:0;color:#cfe3e0;padding:10px 16px;font:inherit;cursor:pointer;border-bottom:3px solid transparent}
+  nav button.on{color:#fff;border-color:#5eead4}
+  main{max-width:1200px;margin:20px auto;padding:0 20px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px 20px;margin-bottom:16px}
+  .card h2{margin:0 0 4px;font-size:16px}
+  .hint{color:var(--mut);font-size:12.5px;margin:0 0 12px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px 16px}
+  label{display:block;font-size:12.5px;color:var(--mut);margin-bottom:4px}
+  input[type=text],input[type=password],input[type=date],select{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:6px;font:inherit;background:#fff}
+  .chk{display:flex;align-items:center;gap:8px;font-size:13.5px;color:var(--ink);margin:6px 0}
+  button.b{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:9px 16px;font:inherit;font-weight:600;cursor:pointer}
+  button.b:hover{background:var(--acc2)}
+  button.b.sec{background:#fff;color:var(--acc);border:1px solid var(--acc)}
+  button.b.danger{background:var(--bad)}
+  button.b:disabled{opacity:.5;cursor:default}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px}
+  .msg{padding:10px 12px;border-radius:6px;margin-top:12px;font-size:13.5px;white-space:pre-wrap}
+  .msg.ok{background:#ecfdf5;color:#065f46}.msg.bad{background:#fef2f2;color:#991b1b}.msg.info{background:#f0f9ff;color:#075985}
+  .stats{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0}
+  .stat{border:1px solid var(--line);border-radius:8px;padding:8px 14px;min-width:120px;cursor:pointer;background:#fff}
+  .stat b{display:block;font-size:20px}
+  .stat.sel{outline:2px solid var(--acc)}
+  .tbl{max-height:520px;overflow:auto;border:1px solid var(--line);border-radius:8px}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{padding:6px 10px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+  th{background:#faf9f7;position:sticky;top:0;font-weight:600}
+  td.num{text-align:right;font-variant-numeric:tabular-nums}
+  .pill{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11.5px;font-weight:600}
+  .UPDATE{background:#e0f2fe;color:#075985}.SAME{background:#f3f4f6;color:#4b5563}.ERROR,.FAILED{background:#fee2e2;color:#991b1b}
+  .NO_MATCH{background:#fef3c7;color:#92400e}.NOT_IN_GTECH{background:#f5f3ff;color:#5b21b6}.DONE{background:#dcfce7;color:#166534}
+  .pos{color:var(--ok)}.neg{color:var(--bad)}
+  .hide{display:none}
+  .bar{height:8px;background:#5eead4;border-radius:4px;min-width:2px}
+  tr.tot td{font-weight:700;background:#faf9f7}
+  .cols td input{width:160px}
+  code{background:#f3f2ee;padding:1px 5px;border-radius:4px}
+  .spin{display:inline-block;width:14px;height:14px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:s 1s linear infinite;vertical-align:-2px;margin-right:6px}
+  @keyframes s{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Gtech ⇄ Shopify Sync</h1>
+    <div class="sub" id="hdrShop">Connect ho raha hai…</div>
+  </div>
+  <a href="/logout" style="margin-left:auto;color:#cfe3e0;font-size:13px">Logout</a>
+</header>
+<nav>
+  <button data-tab="inv" class="on">1. Inventory Sync (Gtech → Shopify)</button>
+  <button data-tab="ord">2. Orders Export (Shopify → Gtech)</button>
+  <button data-tab="sal">3. Sale Report (SKU / Size)</button>
+  <button data-tab="set">⚙ Settings</button>
+</nav>
+<main>
+
+<!-- ================= INVENTORY ================= -->
+<section id="tab-inv">
+  <div class="card">
+    <h2>Step 1 — Gtech ki stock file upload karein</h2>
+    <p class="hint">Gtech se stock / closing balance report CSV ya Excel (.xlsx) mein export karein aur yahan daalein. Jis SKU ka Shopify par exact match milega, sirf wahi update hoga. Baqi items skip ho jayenge.</p>
+    <input type="file" id="invFile" accept=".csv,.txt,.xlsx,.xlsm">
+    <div id="invMap" class="hide">
+      <div class="grid" style="margin-top:14px">
+        <div><label>SKU / Item Code column</label><select id="colSku"></select></div>
+        <div><label>Stock Qty column</label><select id="colQty"></select></div>
+        <div><label>Size column (agar alag hai)</label><select id="colSize"></select></div>
+      </div>
+      <p class="hint" style="margin-top:8px">Agar Gtech mein size code ke saath hai (jaise <code>KHD-301-M</code> ya <code>KHD-301 M</code>) to Size column "None" rehne dein — software khud size alag kar lega.</p>
+      <div class="chk"><input type="checkbox" id="optSum" checked><span>Ek item file mein do baar ho to qty jama (sum) karo</span></div>
+      <div class="chk"><input type="checkbox" id="optNeg" checked><span>Minus (negative) stock ko 0 kar do</span></div>
+      <div class="chk"><input type="checkbox" id="optZero"><span>File mein jo SKU hain, unke jo sizes file mein nahi, unko Shopify par 0 kar do</span></div>
+      <div class="tbl" style="margin-top:10px;max-height:200px"><table id="invSample"></table></div>
+      <div class="row"><button class="b" id="btnPreview">Step 2 — Preview banao (abhi kuch change nahi hoga)</button></div>
+    </div>
+    <div id="invMsg"></div>
+  </div>
+
+  <div class="card hide" id="invResult">
+    <h2>Step 3 — Check karein, phir Shopify par update karein</h2>
+    <div class="stats" id="invStats"></div>
+    <div class="row" style="margin:0 0 10px">
+      <button class="b" id="btnApply">✔ Shopify par update karo</button>
+      <a class="b sec" id="btnReport" href="#" style="text-decoration:none">Report CSV download</a>
+      <input type="text" id="invSearch" placeholder="SKU dhoondein…" style="max-width:220px">
+    </div>
+    <div class="tbl"><table id="invTable"></table></div>
+    <div id="applyMsg"></div>
+  </div>
+</section>
+
+<!-- ================= ORDERS ================= -->
+<section id="tab-ord" class="hide">
+  <div class="card">
+    <h2>Shopify orders → Gtech sale CSV</h2>
+    <p class="hint">Dates select karein, preview dekhein, CSV download kar ke Gtech mein sale import kar dein. Jo orders ek baar export ho jayein wo agli dafa khud skip ho jate hain (double sale nahi banegi).</p>
+    <div class="grid">
+      <div><label>From date</label><input type="date" id="dFrom"></div>
+      <div><label>To date</label><input type="date" id="dTo"></div>
+      <div><label>Orders</label>
+        <select id="ordFul">
+          <option value="any">Sab orders</option>
+          <option value="unfulfilled">Sirf unfulfilled (abhi ship nahi hue)</option>
+          <option value="fulfilled">Sirf fulfilled (ship ho chuke)</option>
+        </select></div>
+    </div>
+    <div class="chk"><input type="checkbox" id="oCancel" checked><span>Cancelled orders skip karo</span></div>
+    <div class="chk"><input type="checkbox" id="oExported" checked><span>Pehle se export hue orders skip karo</span></div>
+    <div style="max-width:420px;margin-top:8px"><label>Sirf ye SKUs / prefix (comma se alag, khali = sab items)</label><input type="text" id="oFilter" placeholder="jaise KHD-, LWN-"></div>
+    <div class="row"><button class="b" id="btnOrders">Orders preview</button></div>
+    <div id="ordMsg"></div>
+  </div>
+  <div class="card hide" id="ordResult">
+    <div class="stats" id="ordStats"></div>
+    <div class="row" style="margin:0 0 10px">
+      <button class="b" id="btnOrdDl">⬇ CSV download (Gtech ke liye)</button>
+      <label class="chk" style="margin:0"><input type="checkbox" id="oMark" checked> Download ke baad in orders ko "exported" mark karo</label>
+    </div>
+    <div class="tbl"><table id="ordTable"></table></div>
+  </div>
+  <div class="card">
+    <h2>Export history</h2>
+    <p class="hint">Export hone wale har order par Shopify mein tag lag jata hai. Agar Gtech import fail ho jaye to order number yahan se un-mark karein taake wo dobara export ho sake.</p>
+    <div class="row" style="margin-top:0">
+      <input type="text" id="unmarkNames" placeholder="#8779, #8780" style="max-width:300px">
+      <button class="b sec" id="btnUnmark">Un-mark</button>
+      <button class="b sec" id="btnHist">History dekho</button>
+    </div>
+    <div id="histBox"></div>
+  </div>
+</section>
+
+<!-- ================= SALE REPORT ================= -->
+<section id="tab-sal" class="hide">
+  <div class="card">
+    <h2>Article ki sale — size wise</h2>
+    <p class="hint">SKU likhein (jaise <code>KHD-301</code>). Ek se zyada ho to comma lagayein: <code>KHD-301, KHD-336</code>.</p>
+    <div class="grid">
+      <div><label>SKU</label><input type="text" id="salSku" placeholder="KHD-301"></div>
+      <div><label>From date</label><input type="date" id="salFrom"></div>
+      <div><label>To date</label><input type="date" id="salTo"></div>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button class="b sec qd" data-d="0">Aaj</button><button class="b sec qd" data-d="6">7 din</button>
+      <button class="b sec qd" data-d="29">30 din</button><button class="b sec qd" data-d="m">Is mahine</button><button class="b sec qd" data-d="89">90 din</button>
+    </div>
+    <div class="chk"><input type="checkbox" id="salCancel"><span>Cancelled orders bhi sale mein gino</span></div>
+    <div class="row"><button class="b" id="btnSales">🔍 Sale dekho</button></div>
+    <div id="salMsg"></div>
+  </div>
+  <div class="card hide" id="salResult">
+    <h2 id="salTitle"></h2>
+    <div class="stats" id="salStats"></div>
+    <div class="tbl"><table id="salTable"></table></div>
+    <div class="row"><button class="b sec" id="btnSalCsv">Size-wise CSV</button><button class="b sec" id="btnSalLines">Orders list CSV</button></div>
+    <h2 style="margin-top:18px">Orders</h2>
+    <div class="tbl" style="max-height:360px"><table id="salLines"></table></div>
+  </div>
+</section>
+
+<!-- ================= SETTINGS ================= -->
+<section id="tab-set" class="hide">
+  <div class="card">
+    <h2>Shopify connection</h2>
+    <p class="hint">Store aur API keys Vercel ke <b>Environment Variables</b> mein set hoti hain (README dekhein). Yahan sirf connection check aur location select karein.</p>
+    <div class="grid">
+      <div><label>Store</label><input type="text" id="sStore" disabled></div>
+      <div><label>Inventory location</label><select id="sLoc"><option value="">— load ho raha hai —</option></select></div>
+    </div>
+    <div class="row"><button class="b" id="btnTest">Test Connection</button></div>
+    <div id="setMsg"></div>
+    <div class="grid" style="margin-top:14px">
+      <div><label>Orders SKU filter (default)</label><input type="text" id="sPfx" disabled></div>
+      <div><label>Item Code format</label><input type="text" id="sFmt" disabled></div>
+      <div><label>Date format</label><input type="text" id="sDate" disabled></div>
+      <div><label>Export tag (Shopify order par)</label><input type="text" id="sTag" disabled></div>
+    </div>
+    <p class="hint" style="margin-top:8px">Ye values badalne ke liye Vercel → Settings → Environment Variables mein ORDER_SKU_FILTER, ITEM_CODE_FORMAT, DATE_FORMAT, EXPORT_TAG badal kar redeploy karein.</p>
+  </div>
+  <div class="card">
+    <h2>Orders CSV columns (Gtech import format)</h2>
+    <p class="hint">Gtech jis format mein sale import leta hai, us hisaab se column ke naam aur tarteeb set karein. Ye is browser mein save rehta hai.</p>
+    <table class="cols" id="colTable"></table>
+    <div class="row"><button class="b sec" id="btnAddCol">+ Column</button><button class="b" id="btnSave2">Save</button><button class="b sec" id="btnResetCols">Default par wapas</button></div>
+    <div id="setMsg2"></div>
+  </div>
+</section>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const store = { get(k,d){ try{ const v = localStorage.getItem(k); return v==null?d:JSON.parse(v); }catch(e){ return d; } },
+                set(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} } };
+let CFG = {}, COLS = [], LOC = "", FILEOBJ = null, FILE = null, PREVIEW = null, ORD = null, invFilter = null;
+
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("nav button").forEach(x => x.classList.toggle("on", x === b));
+  ["inv","ord","sal","set"].forEach(t => $("#tab-"+t).classList.toggle("hide", t !== b.dataset.tab));
+});
+
+function msg(el, text, kind="info"){ $(el).innerHTML = text ? `<div class="msg ${kind}">${esc(text)}</div>` : ""; }
+async function api(url, opts={}){
+  const r = await fetch(url, opts);
+  if(r.status === 401){ location.href = "/login"; throw new Error("Login karein"); }
+  const j = await r.json().catch(()=>({ok:false,error:"Server se jawab nahi aaya (timeout ho sakta hai, dobara try karein)"}));
+  if(!j.ok) throw new Error(j.error || "Error");
+  return j;
+}
+const postJSON = (url, body) => api(url, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+function busy(btn, on, label){ if(on){btn.dataset.l=btn.innerHTML; btn.innerHTML=`<span class="spin"></span>${label||"Ruk jayein…"}`; btn.disabled=true;} else {btn.innerHTML=btn.dataset.l; btn.disabled=false;} }
+function csvDownload(name, headers, rows){
+  const q = v => { v = v==null ? "" : String(v); return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g,'""') + '"' : v; };
+  const text = "﻿" + [headers, ...rows].map(r => r.map(q).join(",")).join("\r\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], {type:"text/csv;charset=utf-8"}));
+  a.download = name; document.body.appendChild(a); a.click(); a.remove();
+}
+const stamp = () => { const d = new Date(), p = n => String(n).padStart(2,"0"); return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`; };
+
+// ---------------- config & settings
+async function init(){
+  try{
+    CFG = await api("/api/config");
+    COLS = store.get("gtech_cols", null) || JSON.parse(JSON.stringify(CFG.default_columns));
+    $("#sStore").value = CFG.store || "(set nahi)"; $("#sPfx").value = CFG.order_sku_filter || "(sab items)"; $("#oFilter").value = CFG.order_sku_filter || ""; $("#sFmt").value = CFG.item_code_format;
+    $("#sDate").value = CFG.date_format; $("#sTag").value = CFG.export_tag;
+    renderCols();
+    await loadLocations(false);
+  }catch(e){ $("#hdrShop").textContent = e.message; }
+}
+async function loadLocations(showMsg){
+  try{
+    const j = await api("/api/locations");
+    const saved = store.get("gtech_loc", "") || CFG.env_location_id;
+    $("#sLoc").innerHTML = j.locations.map(l=>`<option value="${esc(l.id)}">${esc(l.name)}</option>`).join("");
+    if(saved && j.locations.some(l=>l.id===saved)) $("#sLoc").value = saved;
+    LOC = $("#sLoc").value; store.set("gtech_loc", LOC);
+    $("#hdrShop").textContent = `${j.shop.name} · ${CFG.store} · Location: ${$("#sLoc").selectedOptions[0]?.text||"-"}`;
+    if(showMsg) msg("#setMsg", `✔ Connected: ${j.shop.name} (${j.shop.currencyCode})`, "ok");
+  }catch(e){
+    $("#hdrShop").textContent = "Shopify connect nahi hua — Settings dekhein";
+    msg("#setMsg", e.message, "bad");
+    if(showMsg===false) msg("#invMsg", "Shopify connect nahi hua: " + e.message, "bad");
+  }
+}
+$("#btnTest").onclick = async e => { busy(e.target,true); await loadLocations(true); busy(e.target,false); };
+$("#sLoc").onchange = () => { LOC = $("#sLoc").value; store.set("gtech_loc", LOC); loadLocations(true); };
+
+function renderCols(){
+  const opts = Object.entries(CFG.order_fields).map(([k,v])=>`<option value="${k}">${esc(v)}</option>`).join("");
+  $("#colTable").innerHTML = "<tr><th>#</th><th>CSV header naam</th><th>Data</th><th></th></tr>" +
+    COLS.map((c,i)=>`<tr><td>${i+1}</td><td><input type="text" value="${esc(c.header)}" data-i="${i}" class="ch"></td>
+      <td><select data-i="${i}" class="cf">${opts}</select></td>
+      <td><button class="b sec" data-up="${i}">↑</button> <button class="b sec" data-del="${i}">✕</button></td></tr>`).join("");
+  document.querySelectorAll(".cf").forEach(s=>s.value=COLS[s.dataset.i].field);
+  document.querySelectorAll(".ch").forEach(s=>s.oninput=()=>COLS[s.dataset.i].header=s.value);
+  document.querySelectorAll(".cf").forEach(s=>s.onchange=()=>COLS[s.dataset.i].field=s.value);
+  document.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{COLS.splice(+b.dataset.del,1);renderCols();});
+  document.querySelectorAll("[data-up]").forEach(b=>b.onclick=()=>{const i=+b.dataset.up; if(i>0){[COLS[i-1],COLS[i]]=[COLS[i],COLS[i-1]]; renderCols();}});
+}
+$("#btnAddCol").onclick=()=>{COLS.push({header:"New",field:"sku"});renderCols();};
+$("#btnSave2").onclick=()=>{ store.set("gtech_cols", COLS); msg("#setMsg2","✔ Save ho gaya (is browser mein)","ok"); };
+$("#btnResetCols").onclick=()=>{ COLS = JSON.parse(JSON.stringify(CFG.default_columns)); store.set("gtech_cols", null); renderCols(); msg("#setMsg2","Default columns wapas","info"); };
+
+// ---------------- inventory
+$("#invFile").onchange = async e => {
+  FILEOBJ = e.target.files[0]; if(!FILEOBJ) return;
+  msg("#invMsg","File parh raha hoon…"); $("#invResult").classList.add("hide");
+  const fd = new FormData(); fd.append("file", FILEOBJ);
+  try{
+    FILE = await api("/api/inventory/upload",{method:"POST",body:fd});
+    const opt = (none) => (none?'<option value="-1">— None —</option>':'') + FILE.headers.map((h,i)=>`<option value="${i}">${esc(h||"(Column "+(i+1)+")")}</option>`).join("");
+    $("#colSku").innerHTML = opt(false); $("#colQty").innerHTML = opt(false); $("#colSize").innerHTML = opt(true);
+    if(FILE.guess.sku!=null) $("#colSku").value = FILE.guess.sku;
+    if(FILE.guess.qty!=null) $("#colQty").value = FILE.guess.qty;
+    $("#colSize").value = FILE.guess.size!=null ? FILE.guess.size : -1;
+    $("#invSample").innerHTML = "<tr>"+FILE.headers.map(h=>`<th>${esc(h)}</th>`).join("")+"</tr>" +
+      FILE.sample.map(r=>"<tr>"+FILE.headers.map((_,i)=>`<td>${esc(r[i])}</td>`).join("")+"</tr>").join("");
+    $("#invMap").classList.remove("hide");
+    msg("#invMsg", `${FILE.count} rows mili. Columns check kar lein (pehli kuch rows neeche dikh rahi hain).`, "info");
+  }catch(err){ msg("#invMsg", err.message, "bad"); }
+};
+$("#btnPreview").onclick = async e => {
+  if(!LOC){ msg("#invMsg","Pehle Settings mein location select karein","bad"); return; }
+  busy(e.target,true,"Shopify se current stock la raha hoon…");
+  const fd = new FormData();
+  fd.append("file", FILEOBJ); fd.append("location_id", LOC);
+  fd.append("sku_col", $("#colSku").value); fd.append("qty_col", $("#colQty").value); fd.append("size_col", $("#colSize").value);
+  fd.append("sum_duplicates", $("#optSum").checked?"1":"0"); fd.append("negative_to_zero", $("#optNeg").checked?"1":"0");
+  fd.append("zero_missing", $("#optZero").checked?"1":"0");
+  try{
+    PREVIEW = await api("/api/inventory/preview",{method:"POST",body:fd});
+    invFilter = null; renderInv(); $("#invResult").classList.remove("hide"); msg("#applyMsg","");
+    $("#btnApply").disabled = !PREVIEW.summary.UPDATE; $("#btnApply").innerHTML = "✔ Shopify par update karo";
+    msg("#invMsg", `File ke SKUs se Shopify par ${PREVIEW.shopify_variants} variants match hue.` + (PREVIEW.summary.ignored_blank_rows? ` Khali SKU wali rows ignore: ${PREVIEW.summary.ignored_blank_rows}`:""), "info");
+  }catch(err){ msg("#invMsg", err.message, "bad"); }
+  busy(e.target,false);
+};
+const LABEL = {UPDATE:"Update hoga",SAME:"Pehle se same",ERROR:"Error",NO_MATCH:"Shopify par nahi mila",NOT_IN_GTECH:"Gtech file mein nahi",DONE:"Update ho gaya",FAILED:"Fail"};
+function renderInv(){
+  const rows = PREVIEW.rows;
+  const counts = {}; rows.forEach(r=>counts[r.status]=(counts[r.status]||0)+1);
+  $("#invStats").innerHTML = `<div class="stat ${invFilter?"":"sel"}" data-f=""><b>${rows.length}</b>Sab</div>` +
+    Object.keys(LABEL).filter(k=>counts[k]).map(k=>`<div class="stat ${invFilter===k?"sel":""}" data-f="${k}"><b>${counts[k]}</b>${LABEL[k]}</div>`).join("");
+  document.querySelectorAll("#invStats .stat").forEach(s=>s.onclick=()=>{invFilter=s.dataset.f||null;renderInv();});
+  const q = $("#invSearch").value.trim().toUpperCase();
+  const vis = rows.filter(r=>(!invFilter||r.status===invFilter) && (!q || (r.sku+" "+r.size+" "+r.product).toUpperCase().includes(q)));
+  const n = v => v==null?"":v;
+  $("#invTable").innerHTML = "<tr><th>SKU</th><th>Size</th><th>Product</th><th>Shopify</th><th>Gtech</th><th>Naya</th><th>Farq</th><th>Status</th><th>Note</th></tr>" +
+    vis.slice(0,3000).map(r=>`<tr><td>${esc(r.sku)}</td><td>${esc(r.size)}</td><td>${esc(r.product)}</td>
+      <td class="num">${n(r.shopify_qty)}</td><td class="num">${n(r.gtech_qty)}</td><td class="num"><b>${n(r.new_qty)}</b></td>
+      <td class="num ${r.change>0?"pos":r.change<0?"neg":""}">${r.change?((r.change>0?"+":"")+r.change):""}</td>
+      <td><span class="pill ${r.status}">${LABEL[r.status]||r.status}</span></td><td>${esc(r.note)}</td></tr>`).join("");
+}
+$("#invSearch").oninput = renderInv;
+$("#btnReport").onclick = e => {
+  e.preventDefault(); if(!PREVIEW) return;
+  csvDownload(`inventory_sync_report_${stamp()}.csv`,
+    ["SKU","Size","Product","Shopify Qty (pehle)","Gtech Qty","New Qty","Change","Status","Note"],
+    PREVIEW.rows.map(r=>[r.sku,r.size,r.product,r.shopify_qty,r.gtech_qty,r.new_qty,r.change,r.status,r.note]));
+};
+$("#btnApply").onclick = async e => {
+  const todo = PREVIEW.rows.filter(r=>r.status==="UPDATE");
+  if(!todo.length) return;
+  if(!confirm(`${todo.length} variants ki inventory Shopify par update hogi. Pakka?`)) return;
+  busy(e.target,true,"Shopify par update ho raha hai…");
+  try{
+    const j = await postJSON("/api/inventory/apply", {location_id: LOC,
+      items: todo.map(r=>({inventory_item_id:r.inventory_item_id, quantity:r.new_qty, change_from:r.shopify_qty}))});
+    const failed = new Map(j.errors.map(x=>[x.inventory_item_id, x.message]));
+    todo.forEach(r=>{ if(failed.has(r.inventory_item_id)){ r.status="FAILED"; r.note=failed.get(r.inventory_item_id); } else r.status="DONE"; });
+    renderInv();
+    const msgs = j.errors.map(x=>{ const r = todo.find(t=>t.inventory_item_id===x.inventory_item_id); return `${r?r.sku+" "+r.size:""}: ${x.message}`; });
+    msg("#applyMsg", `✔ ${j.updated} variants update ho gaye.` + (msgs.length? `\n\n${msgs.length} errors:\n`+msgs.join("\n"):""), msgs.length?"bad":"ok");
+    busy(e.target,false); e.target.innerHTML = "✔ Ho gaya"; e.target.disabled = true; return;
+  }catch(err){ msg("#applyMsg", err.message, "bad"); }
+  busy(e.target,false);
+};
+
+// ---------------- orders
+const iso = d => new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10);
+$("#dFrom").value = iso(new Date()); $("#dTo").value = iso(new Date());
+$("#btnOrders").onclick = async e => {
+  busy(e.target,true,"Orders la raha hoon…");
+  try{
+    ORD = await postJSON("/api/orders/preview", {from:$("#dFrom").value, to:$("#dTo").value, fulfillment:$("#ordFul").value,
+      skip_cancelled:$("#oCancel").checked, skip_exported:$("#oExported").checked, sku_filter:$("#oFilter").value});
+    const s = ORD.skipped, qty = ORD.rows.reduce((a,r)=>a+(+r.qty||0),0), amt = ORD.rows.reduce((a,r)=>a+(+r.amount||0),0);
+    $("#ordStats").innerHTML = `<div class="stat"><b>${ORD.orders_included}</b>Orders export honge</div><div class="stat"><b>${qty}</b>Total pieces</div>
+      <div class="stat"><b>${amt.toLocaleString()}</b>Amount</div><div class="stat"><b>${s.already_exported}</b>Pehle export ho chuke</div>
+      <div class="stat"><b>${s.cancelled}</b>Cancelled</div><div class="stat"><b>${s.no_matching_items}</b>Filter se bahar</div>` + (s.no_sku_lines? `<div class="stat"><b>${s.no_sku_lines}</b>Bina SKU items (skip)</div>`:"");
+    $("#ordTable").innerHTML = "<tr>"+COLS.map(c=>`<th>${esc(c.header)}</th>`).join("")+"</tr>" +
+      ORD.rows.map(r=>"<tr>"+COLS.map(c=>`<td>${esc(r[c.field])}</td>`).join("")+"</tr>").join("");
+    $("#ordResult").classList.remove("hide"); $("#btnOrdDl").disabled = !ORD.rows.length;
+    msg("#ordMsg", `Shopify par is date range mein ${ORD.orders_found} orders mile.`, "info");
+  }catch(err){ msg("#ordMsg", err.message, "bad"); }
+  busy(e.target,false);
+};
+$("#btnOrdDl").onclick = async e => {
+  csvDownload(`shopify_sales_for_gtech_${stamp()}.csv`, COLS.map(c=>c.header), ORD.rows.map(r=>COLS.map(c=>r[c.field])));
+  if(!$("#oMark").checked){ msg("#ordMsg","✔ CSV download ho gayi (exported mark nahi kiya).","ok"); return; }
+  busy(e.target,true,"Orders par tag laga raha hoon…");
+  try{
+    const j = await postJSON("/api/orders/mark", {order_ids: ORD.order_ids});
+    msg("#ordMsg", `✔ CSV download ho gayi aur ${j.marked} orders par "${CFG.export_tag}" tag lag gaya. Ab Gtech mein import kar dein.` + (j.errors.length?"\n\nErrors:\n"+j.errors.join("\n"):""), j.errors.length?"bad":"ok");
+  }catch(err){ msg("#ordMsg", "CSV download ho gayi, lekin orders mark nahi hue: " + err.message, "bad"); }
+  busy(e.target,false);
+};
+$("#btnHist").onclick = async e => {
+  busy(e.target,true);
+  try{ const j = await api("/api/orders/history");
+    $("#histBox").innerHTML = `<p class="hint">Recent ${j.count} exported orders (tag: ${esc(CFG.export_tag)}).</p><div class="tbl" style="max-height:240px"><table><tr><th>Order</th><th>Order date</th></tr>${j.items.map(i=>`<tr><td>${esc(i.name)}</td><td>${esc(i.createdAt.slice(0,10))}</td></tr>`).join("")}</table></div>`;
+  }catch(err){ $("#histBox").innerHTML = `<div class="msg bad">${esc(err.message)}</div>`; }
+  busy(e.target,false);
+};
+$("#btnUnmark").onclick = async e => {
+  const names = $("#unmarkNames").value.split(/[,\s]+/).filter(Boolean); if(!names.length) return;
+  busy(e.target,true);
+  try{ const j = await postJSON("/api/orders/unmark", {names});
+    $("#histBox").innerHTML = `<div class="msg ok">✔ Un-mark: ${esc(j.unmarked.join(", ")||"koi order nahi mila")}</div>`;
+  }catch(err){ $("#histBox").innerHTML = `<div class="msg bad">${esc(err.message)}</div>`; }
+  busy(e.target,false);
+};
+
+// ---------------- sale report
+let SAL = null;
+function setRange(d){ const to = new Date(); let from = new Date();
+  if(d==="m") from = new Date(to.getFullYear(), to.getMonth(), 1); else from.setDate(to.getDate() - (+d));
+  $("#salFrom").value = iso(from); $("#salTo").value = iso(to); }
+document.querySelectorAll(".qd").forEach(b => b.onclick = () => setRange(b.dataset.d));
+setRange(29);
+$("#salSku").onkeydown = e => { if(e.key === "Enter") $("#btnSales").click(); };
+$("#btnSales").onclick = async e => {
+  const sku = $("#salSku").value.trim(); if(!sku){ msg("#salMsg","SKU likhein","bad"); return; }
+  busy(e.target,true,"Shopify se sale la raha hoon…");
+  try{
+    SAL = await postJSON("/api/sales", {sku, from:$("#salFrom").value, to:$("#salTo").value, location_id:LOC, include_cancelled:$("#salCancel").checked});
+    const t = SAL.totals, n = v => v==null?"–":Number(v).toLocaleString();
+    $("#salTitle").textContent = `${SAL.terms.join(", ")} · ${$("#salFrom").value} se ${$("#salTo").value}`;
+    $("#salStats").innerHTML = `<div class="stat"><b>${n(t.qty)}</b>Pieces bike</div><div class="stat"><b>${n(t.orders)}</b>Orders</div>
+      <div class="stat"><b>${n(t.amount)}</b>Amount</div><div class="stat"><b>${n(t.returned)}</b>Returns (refund)</div>
+      <div class="stat"><b>${n(t.cancelled_qty)}</b>Cancelled pieces</div>`;
+    const max = Math.max(1, ...SAL.rows.map(r=>r.qty));
+    const multi = SAL.terms.length > 1;
+    $("#salTable").innerHTML = `<tr>${multi?"<th>SKU</th>":""}<th>Size</th><th>Bike (pcs)</th><th style="width:22%"></th><th>Orders</th><th>Returns</th><th>Net</th><th>Ship hona baqi</th><th>Cancelled</th><th>Amount</th><th>Abhi stock (Shopify)</th></tr>` +
+      SAL.rows.map(r=>`<tr>${multi?`<td>${esc(r.sku)}</td>`:""}<td><b>${esc(r.size||"-")}</b></td><td class="num"><b>${r.qty}</b></td>
+        <td><div class="bar" style="width:${Math.round(r.qty/max*100)}%"></div></td><td class="num">${r.orders}</td><td class="num">${r.returned||""}</td>
+        <td class="num">${r.net_qty}</td><td class="num">${r.unfulfilled||""}</td><td class="num">${r.cancelled_qty||""}</td><td class="num">${n(r.amount)}</td>
+        <td class="num">${r.stock==null?"–":r.stock}${r.listings>1?` <span class="hint">(${r.listings} listings)</span>`:""}</td></tr>`).join("") +
+      `<tr class="tot">${multi?"<td></td>":""}<td>Total</td><td class="num">${t.qty}</td><td></td><td class="num">${t.orders}</td><td class="num">${t.returned||""}</td><td class="num">${t.net_qty}</td><td></td><td class="num">${t.cancelled_qty||""}</td><td class="num">${n(t.amount)}</td><td></td></tr>`;
+    $("#salLines").innerHTML = "<tr><th>Date</th><th>Order</th><th>SKU</th><th>Size</th><th>Qty</th><th>Amount</th><th>Status</th><th>Payment</th></tr>" +
+      SAL.lines.map(l=>`<tr><td>${esc(l.date)}</td><td>${esc(l.order_no)}</td><td>${esc(l.sku)}</td><td>${esc(l.size)}</td><td class="num">${l.qty}</td><td class="num">${n(l.amount)}</td><td>${esc(l.status)}</td><td>${esc(l.payment)}</td></tr>`).join("");
+    $("#salResult").classList.remove("hide");
+    msg("#salMsg", SAL.lines.length ? "" : "Is date range mein is SKU ki koi sale nahi mili.", "info");
+  }catch(err){ msg("#salMsg", err.message, "bad"); }
+  busy(e.target,false);
+};
+$("#btnSalCsv").onclick = () => csvDownload(`sale_${SAL.terms.join("_")}_${stamp()}.csv`,
+  ["SKU","Size","Sold","Orders","Returns","Net","Ship baqi","Cancelled","Amount","Stock"],
+  SAL.rows.map(r=>[r.sku,r.size,r.qty,r.orders,r.returned,r.net_qty,r.unfulfilled,r.cancelled_qty,r.amount,r.stock]));
+$("#btnSalLines").onclick = () => csvDownload(`sale_orders_${SAL.terms.join("_")}_${stamp()}.csv`,
+  ["Date","Order","SKU","Size","Qty","Amount","Status","Payment"], SAL.lines.map(l=>[l.date,l.order_no,l.sku,l.size,l.qty,l.amount,l.status,l.payment]));
+
+init();
+</script>
+
+</body>
+</html>
