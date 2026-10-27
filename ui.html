@@ -11,8 +11,8 @@
   header{background:#12312e;color:#fff;padding:14px 24px;display:flex;align-items:center;gap:16px}
   header h1{font-size:18px;margin:0;font-weight:600}
   header .sub{opacity:.7;font-size:12px}
-  nav{display:flex;gap:4px;padding:0 24px;background:#12312e}
-  nav button{background:none;border:0;color:#cfe3e0;padding:10px 16px;font:inherit;cursor:pointer;border-bottom:3px solid transparent}
+  nav{display:flex;gap:4px;padding:0 24px;background:#12312e;overflow-x:auto}
+  nav button{white-space:nowrap;background:none;border:0;color:#cfe3e0;padding:10px 16px;font:inherit;cursor:pointer;border-bottom:3px solid transparent}
   nav button.on{color:#fff;border-color:#5eead4}
   main{max-width:1200px;margin:20px auto;padding:0 20px}
   .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px 20px;margin-bottom:16px}
@@ -44,6 +44,9 @@
   .NO_MATCH{background:#fef3c7;color:#92400e}.NOT_IN_GTECH{background:#f5f3ff;color:#5b21b6}.DONE{background:#dcfce7;color:#166534}
   .pos{color:var(--ok)}.neg{color:var(--bad)}
   .hide{display:none}
+  input.qin{width:90px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;font:inherit;text-align:right}
+  input.qin.chg{border-color:var(--acc);background:#f0fdfa;font-weight:700}
+  .pm{padding:4px 9px;border:1px solid var(--line);background:#fff;border-radius:5px;cursor:pointer;font:inherit}
   .bar{height:8px;background:#5eead4;border-radius:4px;min-width:2px}
   tr.tot td{font-weight:700;background:#faf9f7}
   .cols td input{width:160px}
@@ -62,8 +65,11 @@
 </header>
 <nav>
   <button data-tab="inv" class="on">1. Inventory Sync (Gtech → Shopify)</button>
-  <button data-tab="ord">2. Orders Export (Shopify → Gtech)</button>
-  <button data-tab="sal">3. Sale Report (SKU / Size)</button>
+  <button data-tab="stk">2. Stock Edit (Manual)</button>
+  <button data-tab="ord">3. Orders Export (Shopify → Gtech)</button>
+  <button data-tab="sal">4. Sale Report (SKU / Size)</button>
+  <button data-tab="scn">5. Scan</button>
+  <button data-tab="bar">6. Barcodes</button>
   <button data-tab="set">⚙ Settings</button>
 </nav>
 <main>
@@ -100,6 +106,28 @@
     </div>
     <div class="tbl"><table id="invTable"></table></div>
     <div id="applyMsg"></div>
+  </div>
+</section>
+
+<!-- ================= STOCK EDIT ================= -->
+<section id="tab-stk" class="hide">
+  <div class="card">
+    <h2>Stock khud likh kar update karein</h2>
+    <p class="hint">SKU search karein. Har size ka abhi ka Shopify stock dikhega. Jis size ka stock badalna hai, uski nayi qty likhein aur <b>Save</b> dabayein. Sirf badle hue sizes update honge.</p>
+    <div class="row" style="margin-top:0">
+      <input type="text" id="stkSku" placeholder="SKU likhein, jaise KHD-301" style="max-width:320px">
+      <button class="b" id="btnStk">🔍 Search</button>
+    </div>
+    <div id="stkMsg"></div>
+  </div>
+  <div class="card hide" id="stkResult">
+    <div class="tbl"><table id="stkTable"></table></div>
+    <div class="row">
+      <button class="b" id="btnStkSave" disabled>✔ Shopify par save karo</button>
+      <button class="b sec" id="btnStkReset">Wapas pehle jaisa</button>
+      <span class="hint" id="stkCount" style="margin:0"></span>
+    </div>
+    <div id="stkSaveMsg"></div>
   </div>
 </section>
 
@@ -172,6 +200,60 @@
   </div>
 </section>
 
+<!-- ================= BARCODES ================= -->
+<section id="tab-bar" class="hide">
+  <div class="card">
+    <h2>Gtech barcodes → Shopify</h2>
+    <p class="hint">Gtech se SKU, size aur barcode wali file (CSV ya Excel) nikal kar yahan daalein. Har size ke variant par uska barcode lag jayega.<br>
+      Excel mein barcode kabhi <code>8.9E+12</code> ban jata hai. Is liye <b>.xlsx</b> file behtar hai, ya CSV mein barcode column ko Text rakhein.</p>
+    <input type="file" id="barFile" accept=".csv,.txt,.xlsx,.xlsm">
+    <div id="barMap" class="hide">
+      <div class="grid" style="margin-top:14px">
+        <div><label>SKU / Item Code column</label><select id="barColSku"></select></div>
+        <div><label>Size column (agar alag hai)</label><select id="barColSize"></select></div>
+        <div><label>Barcode column</label><select id="barColBc"></select></div>
+      </div>
+      <div class="chk"><input type="checkbox" id="barReplace" checked><span>Purana barcode hata kar sirf naya rakho (band karein to naya barcode purane ke saath add hoga)</span></div>
+      <div class="tbl" style="margin-top:10px;max-height:200px"><table id="barSample"></table></div>
+      <div class="row"><button class="b" id="btnBarPreview">Preview banao</button></div>
+    </div>
+    <div id="barMsg"></div>
+  </div>
+  <div class="card hide" id="barResult">
+    <div class="stats" id="barStats"></div>
+    <div class="row" style="margin:0 0 10px"><button class="b" id="btnBarApply">✔ Shopify par barcodes lagao</button></div>
+    <div class="tbl"><table id="barTable"></table></div>
+    <div id="barApplyMsg"></div>
+  </div>
+</section>
+
+<!-- ================= SCAN ================= -->
+<section id="tab-scn" class="hide">
+  <div class="card">
+    <h2>Barcode scan kar ke stock update</h2>
+    <p class="hint">Neeche box mein click karein aur scanner se scan karte jayein. Barcode na mile to software SKU label (jaise <code>KHD-301-M</code>) se bhi dhoondta hai.</p>
+    <div class="row" style="margin-top:0">
+      <label class="chk" style="margin:0"><input type="radio" name="scnMode" value="1" checked> <b>Add (+)</b> naya maal aaya</label>
+      <label class="chk" style="margin:0"><input type="radio" name="scnMode" value="-1"> <b>Minus (−)</b> maal nikla</label>
+      <span style="margin-left:12px">Har scan par qty: <input type="text" id="scnQty" value="1" style="width:60px"></span>
+    </div>
+    <div class="chk"><input type="checkbox" id="scnInstant" checked><span>Har scan par foran Shopify update karo (band karein to pehle list banegi, phir ek saath save)</span></div>
+    <input type="text" id="scnInput" placeholder="Yahan click kar ke scan karein…" autocomplete="off"
+      style="width:100%;font-size:22px;padding:14px;margin-top:10px;border:2px solid #0f766e;border-radius:8px">
+    <div id="scnLast" style="margin-top:12px"></div>
+  </div>
+  <div class="card hide" id="scnPendingCard">
+    <h2>List (abhi save nahi hui)</h2>
+    <div class="tbl"><table id="scnPending"></table></div>
+    <div class="row"><button class="b" id="btnScnSave">✔ Sab Shopify par save karo</button><button class="b sec" id="btnScnClear">List khali karo</button></div>
+    <div id="scnSaveMsg"></div>
+  </div>
+  <div class="card">
+    <h2>Scan history (is session ki)</h2>
+    <div class="tbl" style="max-height:420px"><table id="scnLog"><tr><th>Waqt</th><th>Code</th><th>SKU</th><th>Size</th><th>Change</th><th>Naya stock</th><th>Status</th><th></th></tr></table></div>
+  </div>
+</section>
+
 <!-- ================= SETTINGS ================= -->
 <section id="tab-set" class="hide">
   <div class="card">
@@ -210,7 +292,7 @@ let CFG = {}, COLS = [], LOC = "", FILEOBJ = null, FILE = null, PREVIEW = null, 
 
 document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
   document.querySelectorAll("nav button").forEach(x => x.classList.toggle("on", x === b));
-  ["inv","ord","sal","set"].forEach(t => $("#tab-"+t).classList.toggle("hide", t !== b.dataset.tab));
+  ["inv","stk","ord","sal","scn","bar","set"].forEach(t => $("#tab-"+t).classList.toggle("hide", t !== b.dataset.tab));
 });
 
 function msg(el, text, kind="info"){ $(el).innerHTML = text ? `<div class="msg ${kind}">${esc(text)}</div>` : ""; }
@@ -435,6 +517,175 @@ $("#btnSalCsv").onclick = () => csvDownload(`sale_${SAL.terms.join("_")}_${stamp
   SAL.rows.map(r=>[r.sku,r.size,r.qty,r.orders,r.returned,r.net_qty,r.unfulfilled,r.cancelled_qty,r.amount,r.stock]));
 $("#btnSalLines").onclick = () => csvDownload(`sale_orders_${SAL.terms.join("_")}_${stamp()}.csv`,
   ["Date","Order","SKU","Size","Qty","Amount","Status","Payment"], SAL.lines.map(l=>[l.date,l.order_no,l.sku,l.size,l.qty,l.amount,l.status,l.payment]));
+
+// ---------------- manual stock edit
+let STK = null;
+$("#stkSku").onkeydown = e => { if(e.key === "Enter") $("#btnStk").click(); };
+async function stkSearch(quiet){
+  const sku = $("#stkSku").value.trim(); if(!sku){ msg("#stkMsg","SKU likhein","bad"); return; }
+  if(!LOC){ msg("#stkMsg","Pehle Settings mein location select karein","bad"); return; }
+  STK = await postJSON("/api/stock/lookup", {sku, location_id: LOC});
+  renderStk();
+  $("#stkResult").classList.toggle("hide", !STK.rows.length);
+  if(!quiet) msg("#stkSaveMsg","");
+  msg("#stkMsg", STK.missing.length ? `Shopify par ye SKU nahi mila: ${STK.missing.join(", ")}` : "", "bad");
+}
+function renderStk(){
+  const multi = new Set(STK.rows.map(r=>r.sku.toUpperCase())).size > 1;
+  $("#stkTable").innerHTML = `<tr>${multi?"<th>SKU</th>":""}<th>Size</th><th>Product</th><th>Abhi stock</th><th>Nayi qty</th><th></th><th>Farq</th></tr>` +
+    STK.rows.map((r,i)=>{
+      const cur = r.current==null ? "–" : r.current;
+      const note = r.problem ? `<span class="pill ERROR">${esc(r.problem)}</span>` :
+        (r.items.length>1 ? `<span class="hint">${r.items.length} listings${r.mismatch?" (qty alag alag hai, save karne par barabar ho jayegi)":""}</span>` : "");
+      return `<tr>${multi?`<td>${esc(r.sku)}</td>`:""}<td><b>${esc(r.size||"-")}</b></td><td>${esc(r.products.join(" / "))} ${note}</td>
+        <td class="num">${cur}</td>
+        <td>${r.problem?"":`<input class="qin" type="number" min="0" data-i="${i}" value="${r.current??0}">`}</td>
+        <td>${r.problem?"":`<button class="pm" data-i="${i}" data-d="-1">−</button> <button class="pm" data-i="${i}" data-d="1">+</button>`}</td>
+        <td class="num" id="stkd${i}"></td></tr>`; }).join("");
+  document.querySelectorAll(".qin").forEach(inp => { inp.oninput = stkChanged; inp.onfocus = () => inp.select(); });
+  document.querySelectorAll(".pm").forEach(b => b.onclick = () => { const inp = document.querySelector(`.qin[data-i="${b.dataset.i}"]`);
+    inp.value = Math.max(0, (parseInt(inp.value)||0) + (+b.dataset.d)); stkChanged(); });
+  stkChanged();
+}
+function stkEdits(){
+  const out = [];
+  document.querySelectorAll(".qin").forEach(inp => { const r = STK.rows[+inp.dataset.i]; const v = parseInt(inp.value);
+    const changed = !isNaN(v) && v >= 0 && (v !== r.current || r.mismatch);
+    inp.classList.toggle("chg", changed);
+    const d = isNaN(v) ? "" : v - (r.current||0); const cell = $("#stkd"+inp.dataset.i);
+    cell.textContent = changed && d ? (d>0?"+":"")+d : ""; cell.className = "num " + (d>0?"pos":d<0?"neg":"");
+    if(changed) out.push({r, v}); });
+  return out;
+}
+function stkChanged(){ const e = stkEdits(); $("#btnStkSave").disabled = !e.length; $("#stkCount").textContent = e.length ? `${e.length} size badlenge` : ""; }
+$("#btnStk").onclick = async e => { busy(e.target,true,"Shopify se stock la raha hoon…"); try{ await stkSearch(); }catch(err){ msg("#stkMsg", err.message, "bad"); } busy(e.target,false); };
+$("#btnStkReset").onclick = () => renderStk();
+$("#btnStkSave").onclick = async e => {
+  const edits = stkEdits(); if(!edits.length) return;
+  const lines = edits.map(x=>`${x.r.sku} ${x.r.size||""}: ${x.r.current??0} → ${x.v}`).join("\n");
+  if(!confirm(`Ye stock Shopify par save hoga:\n\n${lines}\n\nPakka?`)) return;
+  const items = [];
+  edits.forEach(({r,v}) => r.items.filter(i=>i.tracked&&i.stocked).forEach(i => items.push({inventory_item_id:i.inventory_item_id, quantity:v, change_from:i.available})));
+  busy(e.target,true,"Save ho raha hai…");
+  try{
+    const j = await postJSON("/api/inventory/apply", {location_id: LOC, items});
+    await stkSearch(true);
+    msg("#stkSaveMsg", j.errors.length ? `Kuch sizes save nahi hue:\n${j.errors.map(x=>x.message).join("\n")}` : `✔ Save ho gaya:\n${lines}`, j.errors.length?"bad":"ok");
+  }catch(err){ msg("#stkSaveMsg", err.message, "bad"); }
+  busy(e.target,false); stkChanged();
+};
+
+// ---------------- barcodes
+let BARF = null, BARFILE = null, BAR = null;
+const BLABEL = {UPDATE:"Lagega",SAME:"Pehle se laga hai",ERROR:"Error",NO_MATCH:"Shopify par nahi mila",DONE:"Lag gaya",FAILED:"Fail"};
+$("#barFile").onchange = async e => {
+  BARFILE = e.target.files[0]; if(!BARFILE) return; $("#barResult").classList.add("hide");
+  const fd = new FormData(); fd.append("file", BARFILE);
+  try{
+    BARF = await api("/api/inventory/upload",{method:"POST",body:fd});
+    const opt = none => (none?'<option value="-1">— None —</option>':'') + BARF.headers.map((h,i)=>`<option value="${i}">${esc(h||"(Column "+(i+1)+")")}</option>`).join("");
+    $("#barColSku").innerHTML = opt(false); $("#barColSize").innerHTML = opt(true); $("#barColBc").innerHTML = opt(false);
+    if(BARF.guess.sku!=null) $("#barColSku").value = BARF.guess.sku;
+    $("#barColSize").value = BARF.guess.size!=null ? BARF.guess.size : -1;
+    if(BARF.guess.barcode!=null) $("#barColBc").value = BARF.guess.barcode;
+    $("#barSample").innerHTML = "<tr>"+BARF.headers.map(h=>`<th>${esc(h)}</th>`).join("")+"</tr>" + BARF.sample.map(r=>"<tr>"+BARF.headers.map((_,i)=>`<td>${esc(r[i])}</td>`).join("")+"</tr>").join("");
+    $("#barMap").classList.remove("hide"); msg("#barMsg", `${BARF.count} rows mili. Columns check kar lein.`, "info");
+  }catch(err){ msg("#barMsg", err.message, "bad"); }
+};
+$("#btnBarPreview").onclick = async e => {
+  busy(e.target,true,"Shopify se match kar raha hoon…");
+  const fd = new FormData(); fd.append("file", BARFILE); fd.append("location_id", LOC);
+  fd.append("sku_col", $("#barColSku").value); fd.append("size_col", $("#barColSize").value); fd.append("bc_col", $("#barColBc").value);
+  fd.append("replace", $("#barReplace").checked?"1":"0");
+  try{ BAR = await api("/api/barcodes/preview",{method:"POST",body:fd}); renderBar(); $("#barResult").classList.remove("hide"); msg("#barApplyMsg","");
+       $("#btnBarApply").disabled = !BAR.summary.UPDATE; $("#btnBarApply").innerHTML = "✔ Shopify par barcodes lagao"; }
+  catch(err){ msg("#barMsg", err.message, "bad"); }
+  busy(e.target,false);
+};
+function renderBar(){
+  const c = {}; BAR.rows.forEach(r=>c[r.status]=(c[r.status]||0)+1);
+  $("#barStats").innerHTML = Object.keys(BLABEL).filter(k=>c[k]).map(k=>`<div class="stat"><b>${c[k]}</b>${BLABEL[k]}</div>`).join("");
+  $("#barTable").innerHTML = "<tr><th>SKU</th><th>Size</th><th>Product</th><th>Abhi barcode</th><th>Naya barcode</th><th>Status</th><th>Note</th></tr>" +
+    BAR.rows.map(r=>`<tr><td>${esc(r.sku)}</td><td>${esc(r.size)}</td><td>${esc(r.product)}</td><td>${esc(r.current)}</td><td><b>${esc(r.new)}</b></td>
+      <td><span class="pill ${r.status==="UPDATE"?"UPDATE":r.status}">${BLABEL[r.status]||r.status}</span></td><td>${esc(r.note)}</td></tr>`).join("");
+}
+$("#btnBarApply").onclick = async e => {
+  const todo = BAR.rows.filter(r=>r.status==="UPDATE"); if(!todo.length) return;
+  if(!confirm(`${todo.length} variants par barcode lagega. Pakka?`)) return;
+  busy(e.target,true,"Barcodes lag rahe hain…");
+  try{
+    const j = await postJSON("/api/barcodes/apply", {items: todo.map(r=>({variant_id:r.variant_id, product_id:r.product_id, barcodes:r.barcodes}))});
+    const failed = new Set(j.errors.flatMap(x=>x.variant_ids));
+    todo.forEach(r=>r.status = failed.has(r.variant_id) ? "FAILED" : "DONE"); renderBar();
+    msg("#barApplyMsg", `✔ ${j.updated} variants par barcode lag gaya.` + (j.errors.length?"\n\nErrors:\n"+j.errors.map(x=>x.message).join("\n"):""), j.errors.length?"bad":"ok");
+    busy(e.target,false); e.target.innerHTML = "✔ Ho gaya"; e.target.disabled = true; return;
+  }catch(err){ msg("#barApplyMsg", err.message, "bad"); }
+  busy(e.target,false);
+};
+
+// ---------------- scan
+const PENDING = new Map(); let scanBusy = Promise.resolve(), logN = 0;
+function beep(ok){ try{ const a = new (window.AudioContext||window.webkitAudioContext)(), o = a.createOscillator(), g = a.createGain();
+  o.frequency.value = ok ? 880 : 220; o.type = ok ? "sine" : "square"; g.gain.value = .08; o.connect(g); g.connect(a.destination); o.start(); o.stop(a.currentTime + (ok?.12:.35)); }catch(e){} }
+function scnDelta(){ const q = Math.max(1, parseInt($("#scnQty").value,10)||1); return q * parseInt(document.querySelector('input[name=scnMode]:checked').value,10); }
+function logRow(o){
+  const id = "lg"+(++logN), t = new Date().toLocaleTimeString();
+  const tr = document.createElement("tr"); tr.id = id;
+  tr.innerHTML = `<td>${t}</td><td>${esc(o.code)}</td><td>${esc(o.sku||"")}</td><td>${esc(o.size||"")}</td>
+    <td class="num ${o.delta>0?"pos":"neg"}">${o.delta?((o.delta>0?"+":"")+o.delta):""}</td><td class="num"><b>${o.after??""}</b></td>
+    <td><span class="pill ${o.cls}">${esc(o.status)}</span></td><td>${o.undo?'<button class="b sec" style="padding:3px 10px">Undo</button>':""}</td>`;
+  const head = $("#scnLog").rows[0]; head.after(tr);
+  if(o.undo) tr.querySelector("button").onclick = async ev => { ev.target.disabled = true;
+    try{ await postJSON("/api/scan/apply", {location_id:LOC, items:[{inventory_item_ids:o.ids, delta:-o.delta}]});
+      tr.querySelector(".pill").textContent = "Undo ho gaya"; tr.querySelector(".pill").className = "pill SAME"; ev.target.remove(); beep(true); }
+    catch(err){ ev.target.disabled = false; alertBox(err.message); } };
+}
+function alertBox(text, ok){ $("#scnLast").innerHTML = `<div class="msg ${ok?"ok":"bad"}" style="font-size:16px">${esc(text)}</div>`; }
+function renderPending(){
+  $("#scnPendingCard").classList.toggle("hide", !PENDING.size);
+  $("#scnPending").innerHTML = "<tr><th>SKU</th><th>Size</th><th>Product</th><th>Abhi stock</th><th>Change</th><th>Save ke baad</th><th></th></tr>" +
+    [...PENDING.entries()].map(([k,p])=>`<tr><td>${esc(p.g.sku)}</td><td><b>${esc(p.g.size)}</b></td><td>${esc(p.g.product)}</td><td class="num">${p.g.available??"–"}</td>
+      <td><input type="text" value="${p.delta}" data-k="${esc(k)}" class="pdIn" style="width:70px"></td><td class="num"><b>${(p.g.available||0)+p.delta}</b></td>
+      <td><button class="b sec pdDel" data-k="${esc(k)}" style="padding:3px 10px">✕</button></td></tr>`).join("");
+  document.querySelectorAll(".pdIn").forEach(i=>i.onchange=()=>{ const p = PENDING.get(i.dataset.k); p.delta = parseInt(i.value,10)||0; renderPending(); });
+  document.querySelectorAll(".pdDel").forEach(b=>b.onclick=()=>{ PENDING.delete(b.dataset.k); renderPending(); $("#scnInput").focus(); });
+}
+async function doScan(code){
+  const delta = scnDelta(), instant = $("#scnInstant").checked;
+  try{
+    const j = await postJSON("/api/scan", {code, location_id:LOC, delta, apply:instant});
+    if(!j.found){ beep(false); alertBox(j.error || `❌ "${code}" kisi product par nahi mila`); logRow({code, status:"Nahi mila", cls:"ERROR"}); return; }
+    const g = j.group;
+    if(!g.inventory_item_ids.length){ beep(false); alertBox(`${g.sku} ${g.size}: ${g.issues.join("; ")}`); logRow({code, sku:g.sku, size:g.size, status:"Error", cls:"ERROR"}); return; }
+    beep(true);
+    if(instant){
+      alertBox(`✔ ${g.sku} · ${g.size||"-"} · ${g.product}   ${delta>0?"+":""}${delta}  →  stock ${g.available}`, true);
+      logRow({code, sku:g.sku, size:g.size, delta, after:g.available, status:"Save ho gaya", cls:"DONE", undo:true, ids:g.inventory_item_ids});
+    }else{
+      const k = g.sku+"|"+g.size, p = PENDING.get(k) || {g, delta:0}; p.delta += delta; PENDING.set(k, p); renderPending();
+      alertBox(`➕ List mein: ${g.sku} · ${g.size||"-"}  (${p.delta>0?"+":""}${p.delta})`, true);
+      logRow({code, sku:g.sku, size:g.size, delta, status:"List mein", cls:"UPDATE"});
+    }
+  }catch(err){ beep(false); alertBox(err.message); logRow({code, status:"Error", cls:"ERROR"}); }
+}
+$("#scnInput").onkeydown = e => {
+  if(e.key !== "Enter") return; e.preventDefault();
+  const code = e.target.value.trim(); e.target.value = ""; if(!code) return;
+  if(!LOC){ alertBox("Pehle Settings mein location select karein"); return; }
+  scanBusy = scanBusy.then(() => doScan(code));   // scans ek ke baad ek, tarteeb se
+};
+$("#btnScnSave").onclick = async e => {
+  const items = [...PENDING.values()].filter(p=>p.delta).map(p=>({inventory_item_ids:p.g.inventory_item_ids, delta:p.delta}));
+  if(!items.length) return;
+  busy(e.target,true,"Save ho raha hai…");
+  try{ const j = await postJSON("/api/scan/apply", {location_id:LOC, items});
+    msg("#scnSaveMsg", `✔ ${items.length} items Shopify par update ho gaye.` + (j.errors.length?"\n"+j.errors.join("\n"):""), j.errors.length?"bad":"ok");
+    PENDING.clear(); renderPending(); $("#scnPendingCard").classList.remove("hide"); }
+  catch(err){ msg("#scnSaveMsg", err.message, "bad"); }
+  busy(e.target,false); $("#scnInput").focus();
+};
+$("#btnScnClear").onclick = () => { PENDING.clear(); renderPending(); $("#scnInput").focus(); };
+document.querySelector('nav button[data-tab=scn]').addEventListener("click", () => setTimeout(()=>$("#scnInput").focus(), 50));
 
 init();
 </script>

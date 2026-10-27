@@ -13,6 +13,7 @@ Ek web app jo Vercel par chalti hai. Aap isay kahin se bhi browser mein khol sak
 2. **Admin API scopes** select karein:
    - `read_products`, `read_inventory`, `write_inventory`, `read_locations`
    - `read_orders`, `write_orders` (export tag lagane ke liye)
+   - `write_products` (Barcodes tab se barcode lagane ke liye)
    - (optional) `read_customers`: CSV mein customer ka naam aur phone ke liye
    - (optional) `read_all_orders`: 60 din se purane orders ke liye
 3. Version release karein aur store par **Install** karein.
@@ -80,6 +81,22 @@ CSV ke columns ke naam aur tarteeb **Settings → Orders CSV columns** mein Gtec
 > 60 din se purani sale dekhne ke liye Shopify app mein `read_all_orders` scope chahiye.
 
 ---
+
+### Stock Edit (Manual)
+SKU likh kar **search** karein. Har size ka abhi ka stock aata hai. Nayi qty likhein ya **+ / −** dabayein, phir **Save**. Duplicate listings sab ek saath update hoti hain.
+
+### Scan
+1. **Scan** tab kholein. Box mein cursor khud aa jata hai.
+2. **Add (+)** (naya maal aaya) ya **Minus (−)** (maal nikla) chunein. Har scan par qty normally 1 hoti hai.
+3. Scanner se scan karte jayein. Har scan par beep hoti hai aur stock foran Shopify par update hota hai. Ghalti ho to us line par **Undo** dabayein.
+4. Agar pehle sab scan kar ke baad mein ek saath save karna ho, to "Har scan par foran update" ka checkbox band kar dein. Scans list mein jama hote hain, aur aap qty badal kar **Sab save karo** daba sakte hain.
+5. Barcode na mile to software SKU label (jaise `KHD-301-M`) se bhi dhoondta hai.
+
+### Barcodes
+1. Gtech se SKU, size aur barcode wali file nikalein. **Excel (.xlsx)** behtar hai, kyun ke CSV mein Excel lambe barcode ko `8.9E+12` bana deta hai.
+2. **Barcodes** tab → file daalein → columns check karein → **Preview** → **Shopify par barcodes lagao**.
+3. Normally purana barcode hat kar naya lagta hai. Checkbox band karein to naya barcode purane ke saath add hoga.
+4. Iske liye Shopify app mein `write_products` scope hona chahiye. Scope add karne ke baad naya version **Release** karein, aur Shopify Admin mein app ki nayi permissions **approve** karein.
 
 ## Masail (Troubleshooting)
 - **Login page par "APP_PASSWORD set nahi":** Vercel mein variable daal kar Redeploy karein.

@@ -50,8 +50,22 @@ class Shopify:
             timeout=30,
         )
         if r.status_code != 200:
-            raise ShopifyError(f"Token nahi mila ({r.status_code}): {r.text[:300]}. "
-                               "Client ID/Secret check karein aur app store par install hai ya nahi.")
+            t = r.text.lower()
+            if "app_not_installed" in t:
+                raise ShopifyError(
+                    f"App '{self.store}' store par install nahi hai. dev.shopify.com par app kholein → "
+                    "'Install app' dabayein → ye store chunein → Install. Ye bhi check karein ke "
+                    "SHOPIFY_STORE sahi .myshopify.com naam hai aur app usi organization mein bani hai jis mein store hai.")
+            if "invalid_client" in t or "client" in t and r.status_code in (400, 401):
+                raise ShopifyError("Client ID ya Client Secret ghalat hai. dev.shopify.com → app → Settings se dobara copy "
+                                   "kar ke Vercel mein daalein, phir Redeploy karein.")
+            if r.status_code == 404 or "shop not found" in t:
+                raise ShopifyError(f"Store '{self.store}' nahi mila. SHOPIFY_STORE mein sahi .myshopify.com naam daalein.")
+            import re as _re
+            m = _re.search(r"<title>(.*?)</title>", r.text, _re.S | _re.I)
+            detail = m.group(1).strip() if m else r.text[:150]
+            raise ShopifyError(f"Shopify token nahi mila ({r.status_code}: {detail}). "
+                               "Client ID/Secret aur app ka install check karein.")
         j = r.json()
         self._token = j["access_token"]
         self._token_exp = time.time() + int(j.get("expires_in", 86399))
@@ -101,10 +115,11 @@ class Shopify:
     # ---------- variants ----------
     VARIANT_Q = """
     query($q: String!, $loc: ID!, $after: String) {
-      productVariants(first: 100, after: $after, query: $q) {
+      productVariants(first: 50, after: $after, query: $q) {
         pageInfo { hasNextPage endCursor }
         nodes {
           id sku title
+          barcodes(first: 5) { nodes { value } }
           selectedOptions { name value }
           product { id title status }
           inventoryItem {
@@ -133,6 +148,8 @@ class Shopify:
             "variant_id": n["id"], "sku": sku, "size": size,
             "variant_title": n.get("title") or "",
             "product": n["product"]["title"], "product_status": n["product"]["status"],
+            "product_id": n["product"]["id"],
+            "barcodes": [b["value"] for b in ((n.get("barcodes") or {}).get("nodes") or [])],
             "inventory_item_id": inv.get("id"), "tracked": inv.get("tracked", False),
             "stocked": lvl is not None, "available": qty,
         }
@@ -164,6 +181,63 @@ class Shopify:
                     break
                 after = pv["pageInfo"]["endCursor"]
         return out
+
+    def variants_by_barcode(self, code, location_id):
+        code = (code or "").strip().replace('"', "")
+        if not code:
+            return []
+        d = self.gql(self.VARIANT_Q, {"q": f'barcode:"{code}"', "loc": location_id, "after": None})
+        out = []
+        for n in d["productVariants"]["nodes"]:
+            v = self._parse_variant(n)
+            if any(b.strip().upper() == code.upper() for b in v["barcodes"]):
+                out.append(v)
+        return out
+
+    # ---------- adjust (+/-) inventory ----------
+    def adjust_quantities(self, location_id, changes):
+        """changes: list of dict(inventory_item_id, delta). Returns list of error messages."""
+        m = """
+        mutation($input: InventoryAdjustQuantitiesInput!, $key: String!) {
+          inventoryAdjustQuantities(input: $input) @idempotent(key: $key) {
+            inventoryAdjustmentGroup { id }
+            userErrors { field message code }
+          }
+        }"""
+        errors = []
+        for i in range(0, len(changes), 100):
+            batch = [c for c in changes[i:i + 100] if int(c["delta"]) != 0]
+            if not batch:
+                continue
+            inp = {"name": "available", "reason": "correction", "referenceDocumentUri": "gtech://manual-or-scan",
+                   "changes": [{"inventoryItemId": c["inventory_item_id"], "locationId": location_id,
+                                "delta": int(c["delta"]), "changeFromQuantity": None} for c in batch]}
+            d = self.gql(m, {"input": inp, "key": str(uuid.uuid4())})
+            for e in d["inventoryAdjustQuantities"]["userErrors"]:
+                errors.append(e.get("message"))
+        return errors
+
+    # ---------- barcodes ----------
+    def set_barcodes(self, items):
+        """items: list of dict(product_id, variant_id, barcodes:[str]). Returns list of error strings."""
+        m = """
+        mutation($pid: ID!, $variants: [ProductVariantsBulkInput!]!) {
+          productVariantsBulkUpdate(productId: $pid, variants: $variants, allowPartialUpdates: true) {
+            productVariants { id }
+            userErrors { field message }
+          }
+        }"""
+        by_product = {}
+        for it in items:
+            by_product.setdefault(it["product_id"], []).append(it)
+        errors = []
+        for pid, its in by_product.items():
+            variants = [{"id": it["variant_id"], "barcodes": [{"value": b} for b in it["barcodes"]]} for it in its]
+            d = self.gql(m, {"pid": pid, "variants": variants})
+            for e in d["productVariantsBulkUpdate"]["userErrors"]:
+                errors.append({"variant_ids": [it["variant_id"] for it in its], "message": e.get("message"),
+                               "field": e.get("field")})
+        return errors
 
     # ---------- set inventory ----------
     def set_quantities(self, location_id, items):

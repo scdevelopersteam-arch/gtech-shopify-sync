@@ -478,3 +478,104 @@ def sales_report(orders, sku_terms, variants, cfg, include_cancelled=False):
             "totals": {"orders": len(totals["orders"]), "qty": totals["qty"], "amount": round(totals["amount"], 2),
                        "returned": totals["returned"], "net_qty": totals["qty"] - totals["returned"],
                        "cancelled_qty": totals["cancelled_qty"]}}
+
+
+# ------------------------------------------------------------------ size groups (manual edit / scan)
+def group_variants(variants):
+    """Same SKU+size wale variants (duplicate listings) ek group mein — sab ko ek saath update karte hain."""
+    groups = {}
+    for v in variants:
+        k = (norm(v["sku"]), norm(v["size"]))
+        g = groups.setdefault(k, {"sku": v["sku"], "size": v["size"], "products": [], "inventory_item_ids": [],
+                                  "available": None, "listings": 0, "barcodes": [], "issues": []})
+        g["listings"] += 1
+        if v["product"] not in g["products"]:
+            g["products"].append(v["product"])
+        for b in v.get("barcodes") or []:
+            if b not in g["barcodes"]:
+                g["barcodes"].append(b)
+        if not v["tracked"]:
+            g["issues"].append(f'{v["product"]}: tracking off')
+            continue
+        if not v["stocked"]:
+            g["issues"].append(f'{v["product"]}: is location par stocked nahi')
+            continue
+        g["inventory_item_ids"].append(v["inventory_item_id"])
+        if v["available"] is not None:
+            g["available"] = v["available"] if g["available"] is None else max(g["available"], v["available"])
+        g.setdefault("all_qty", []).append(v["available"])
+    out = []
+    for g in groups.values():
+        q = g.pop("all_qty", [])
+        g["mismatch"] = len(set(q)) > 1  # duplicate listings mein alag qty
+        g["product"] = g["products"][0] if g["products"] else ""
+        out.append(g)
+    out.sort(key=lambda g: (norm(g["sku"]), _size_key(g["size"])))
+    return out
+
+
+# ------------------------------------------------------------------ barcodes
+BARCODE_HINTS = ["barcode", "bar code", "ean", "upc", "gtin"]
+
+
+def build_barcode_preview(variants, rows, sku_col, bc_col, size_col=None, replace=True):
+    known = {norm(v["sku"]) for v in variants}
+    by_key = {}
+    for v in variants:
+        by_key.setdefault((norm(v["sku"]), norm(v["size"])), []).append(v)
+    by_sku = {}
+    for v in variants:
+        by_sku.setdefault(norm(v["sku"]), []).append(v)
+
+    seen_bc = {}
+    out = []
+    for r in rows:
+        code = r[sku_col] if sku_col < len(r) else ""
+        bc = (r[bc_col] if bc_col < len(r) else "").strip()
+        if not norm(code) and not bc:
+            continue
+        if size_col is not None and size_col < len(r) and r[size_col].strip():
+            sku, size = norm(code), norm(r[size_col])
+        else:
+            sku, size = split_code(code, known)
+        base = {"sku": sku, "size": size, "product": "", "current": "", "new": bc, "status": "", "note": "",
+                "variant_id": None, "product_id": None, "barcodes": []}
+        if not bc:
+            out.append({**base, "status": "ERROR", "note": "Barcode khali hai"})
+            continue
+        if re.search(r"\d[.,]?\d*E\+\d+", bc, re.I):
+            out.append({**base, "status": "ERROR",
+                        "note": "Excel ne barcode ko 8.9E+12 jaisa bana diya. Gtech se dobara nikal kar Excel (.xlsx) file daalein ya column ko Text format karein"})
+            continue
+        prev = seen_bc.get(bc)
+        if prev and prev != (sku, size):
+            out.append({**base, "status": "ERROR", "note": f"Ye barcode file mein {prev[0]} {prev[1]} par bhi hai"})
+            continue
+        seen_bc[bc] = (sku, size)
+        targets = by_key.get((sku, size), [])
+        if not targets and not size:
+            vs = by_sku.get(sku, [])
+            if len({norm(v["size"]) for v in vs}) == 1:
+                targets = vs
+            elif vs:
+                out.append({**base, "status": "NO_MATCH", "note": "Is SKU ke kai sizes hain, size nahi diya"})
+                continue
+        if not targets:
+            out.append({**base, "status": "NO_MATCH",
+                        "note": "Size Shopify par nahi mila" if sku in by_sku else "SKU Shopify par nahi mila"})
+            continue
+        for v in targets:
+            cur = v.get("barcodes") or []
+            if replace:
+                new_list = [bc]
+            else:
+                new_list = cur + ([bc] if bc not in cur else [])
+            same = [x.strip() for x in cur] == new_list
+            out.append({**base, "sku": v["sku"], "size": v["size"], "product": v["product"],
+                        "current": ", ".join(cur), "status": "SAME" if same else "UPDATE",
+                        "note": (f"{len(targets)} listings par same barcode" if len(targets) > 1 else ""),
+                        "variant_id": v["variant_id"], "product_id": v["product_id"], "barcodes": new_list})
+    order = {"UPDATE": 0, "ERROR": 1, "NO_MATCH": 2, "SAME": 3}
+    out.sort(key=lambda x: (order.get(x["status"], 9), norm(x["sku"]), _size_key(x["size"])))
+    summary = {k: sum(1 for x in out if x["status"] == k) for k in order}
+    return out, summary

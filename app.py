@@ -151,7 +151,8 @@ def inv_upload():
     return jsonify({"ok": True, "headers": headers, "sample": data[:8], "count": len(data),
                     "guess": {"sku": L.guess_column(headers, L.SKU_HINTS),
                               "qty": L.guess_column(headers, L.QTY_HINTS),
-                              "size": L.guess_column(headers, L.SIZE_HINTS)}})
+                              "size": L.guess_column(headers, L.SIZE_HINTS),
+                              "barcode": L.guess_column(headers, L.BARCODE_HINTS)}})
 
 
 @app.post("/api/inventory/preview")
@@ -273,6 +274,44 @@ def orders_unmark():
     return jsonify({"ok": True, "unmarked": list(found.keys()), "errors": errors})
 
 
+# ------------------------------------------------------------------ manual stock edit
+@app.post("/api/stock/lookup")
+def stock_lookup():
+    import re as _re
+    b = request.get_json(force=True)
+    c = cfg()
+    terms = [t.strip() for t in _re.split(r"[,\n]", b.get("sku") or "") if t.strip()][:10]
+    if not terms:
+        return err("SKU likhein (jaise KHD-301)")
+    loc = b.get("location_id") or c["location_id"]
+    if not loc:
+        return err("Pehle Settings mein location select karein")
+    try:
+        variants = shop().variants_by_skus(terms, loc)
+    except ShopifyError as e:
+        return err(e)
+    groups = {}
+    for v in variants:
+        k = (L.norm(v["sku"]), L.norm(v["size"]))
+        g = groups.setdefault(k, {"sku": v["sku"], "size": v["size"], "products": [], "items": []})
+        if v["product"] not in g["products"]:
+            g["products"].append(v["product"])
+        g["items"].append({"inventory_item_id": v["inventory_item_id"], "available": v["available"],
+                           "tracked": v["tracked"], "stocked": v["stocked"], "product": v["product"]})
+    rows = []
+    for g in groups.values():
+        ok = [i for i in g["items"] if i["tracked"] and i["stocked"]]
+        qtys = [i["available"] for i in ok if i["available"] is not None]
+        g["current"] = max(qtys) if qtys else None
+        g["mismatch"] = len(set(qtys)) > 1
+        g["problem"] = "" if ok else ("Tracking off hai" if not any(i["tracked"] for i in g["items"]) else "Is location par stocked nahi")
+        rows.append(g)
+    rows.sort(key=lambda r: (L.norm(r["sku"]), L._size_key(r["size"])))
+    found = {L.norm(v["sku"]) for v in variants}
+    missing = [t for t in terms if L.norm(t) not in found]
+    return jsonify({"ok": True, "rows": rows, "missing": missing})
+
+
 # ------------------------------------------------------------------ sale report
 @app.post("/api/sales")
 def sales():
@@ -300,6 +339,120 @@ def sales():
         return err(e)
     rep = L.sales_report(orders, terms, variants, c, include_cancelled=bool(b.get("include_cancelled")))
     return jsonify({"ok": True, "terms": terms, **rep})
+
+
+# ------------------------------------------------------------------ helpers
+def _loc(b):
+    loc = (b.get("location_id") if hasattr(b, "get") else None) or cfg()["location_id"]
+    if not loc:
+        raise ValueError("Settings mein location select karein")
+    return loc
+
+
+
+# ------------------------------------------------------------------ scan
+@app.post("/api/scan")
+def scan():
+    b = request.get_json(force=True)
+    code = (b.get("code") or "").strip()
+    if not code:
+        return err("Code khali hai")
+    try:
+        loc = _loc(b)
+        sh = shop()
+        variants = sh.variants_by_barcode(code, loc)
+        via = "barcode"
+        if not variants:  # fallback: KHD-301-M jaisa SKU label
+            vs = sh.variants_by_skus(L.candidate_skus(code), loc)
+            known = {L.norm(v["sku"]) for v in vs}
+            base, size = L.split_code(code, known)
+            variants = [v for v in vs if L.norm(v["sku"]) == base and (L.norm(v["size"]) == L.norm(size))]
+            via = "sku"
+        if not variants:
+            return jsonify({"ok": True, "found": False, "code": code})
+        groups = L.group_variants(variants)
+        if len(groups) > 1:
+            return jsonify({"ok": True, "found": False, "code": code,
+                            "error": "Ye barcode ek se zyada SKU/size par laga hai: " +
+                                     ", ".join(f'{g["sku"]} {g["size"]}' for g in groups)})
+        g = groups[0]
+        delta = int(b.get("delta") or 0)
+        applied = False
+        if b.get("apply") and delta and g["inventory_item_ids"]:
+            errs = sh.adjust_quantities(loc, [{"inventory_item_id": i, "delta": delta} for i in g["inventory_item_ids"]])
+            if errs:
+                return err("; ".join(errs))
+            applied = True
+            if g["available"] is not None:
+                g["available"] += delta
+    except (ShopifyError, ValueError) as e:
+        return err(e)
+    return jsonify({"ok": True, "found": True, "code": code, "via": via, "group": g, "applied": applied})
+
+
+@app.post("/api/scan/apply")
+def scan_apply():
+    b = request.get_json(force=True)
+    try:
+        loc = _loc(b)
+    except ValueError as e:
+        return err(e)
+    changes = []
+    for it in b.get("items") or []:
+        d = int(it.get("delta") or 0)
+        for i in it.get("inventory_item_ids") or []:
+            if str(i).startswith("gid://shopify/InventoryItem/") and d:
+                changes.append({"inventory_item_id": i, "delta": d})
+    if not changes:
+        return jsonify({"ok": True, "updated": 0, "errors": []})
+    try:
+        errors = shop().adjust_quantities(loc, changes)
+    except ShopifyError as e:
+        return err(e)
+    return jsonify({"ok": True, "updated": len(changes), "errors": errors})
+
+
+# ------------------------------------------------------------------ barcodes
+@app.post("/api/barcodes/preview")
+def barcodes_preview():
+    try:
+        headers, data = _read_upload()
+    except Exception as e:
+        return err(f"File parh nahi saka: {e}")
+    f = request.form
+    sku_col, bc_col = int(f["sku_col"]), int(f["bc_col"])
+    size_col = f.get("size_col")
+    size_col = None if size_col in (None, "", "-1") else int(size_col)
+    codes = L.gtech_codes(data, sku_col)
+    if not codes:
+        return err("SKU column mein koi SKU nahi mila")
+    try:
+        variants = shop().variants_by_skus(codes, f.get("location_id") or cfg()["location_id"] or "gid://shopify/Location/0")
+    except ShopifyError as e:
+        return err(e)
+    rows, summary = L.build_barcode_preview(variants, data, sku_col, bc_col, size_col, replace=f.get("replace", "1") == "1")
+    return jsonify({"ok": True, "rows": rows, "summary": summary})
+
+
+@app.post("/api/barcodes/apply")
+def barcodes_apply():
+    items = []
+    for it in request.get_json(force=True).get("items") or []:
+        if str(it.get("variant_id", "")).startswith("gid://shopify/ProductVariant/") and \
+           str(it.get("product_id", "")).startswith("gid://shopify/Product/"):
+            bcs = [str(x).strip() for x in it.get("barcodes") or [] if str(x).strip()][:20]
+            items.append({"variant_id": it["variant_id"], "product_id": it["product_id"], "barcodes": bcs})
+    if not items:
+        return err("Kuch update karne ko nahi")
+    try:
+        errors = shop().set_barcodes(items)
+    except ShopifyError as e:
+        msg = str(e)
+        if "access" in msg.lower() or "403" in msg:
+            msg += " — Shopify app mein write_products scope add kar ke naya version release karein."
+        return err(msg)
+    failed = {v for e in errors for v in e["variant_ids"]}
+    return jsonify({"ok": True, "updated": len(items) - len(failed), "errors": errors})
 
 
 # ------------------------------------------------------------------ UI
