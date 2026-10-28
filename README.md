@@ -90,7 +90,8 @@ SKU likh kar **search** karein. Har size ka abhi ka stock aata hai. Nayi qty lik
 2. **Add (+)** (naya maal aaya) ya **Minus (−)** (maal nikla) chunein. Har scan par qty normally 1 hoti hai.
 3. Scanner se scan karte jayein. Har scan par beep hoti hai aur stock foran Shopify par update hota hai. Ghalti ho to us line par **Undo** dabayein.
 4. Agar pehle sab scan kar ke baad mein ek saath save karna ho, to "Har scan par foran update" ka checkbox band kar dein. Scans list mein jama hote hain, aur aap qty badal kar **Sab save karo** daba sakte hain.
-5. Barcode na mile to software SKU label (jaise `KHD-301-M`) se bhi dhoondta hai.
+5. **Ginti (actual stock)** mode: shelf ka maal scan karte jayein. Har scan par us size ki ginti 1 barhti hai. Save dabane par Shopify ka stock bilkul yehi ginti ban jata hai, plus ya minus nahi hota. "Scan nahi hua → 0" wala checkbox on ho to scan kiye gaye article ke baqi sizes 0 ho jate hain. Save se pehle page band na karein.
+6. Barcode na mile to software SKU label (jaise `KHD-301-M`) se bhi dhoondta hai.
 
 ### Barcodes
 1. Gtech se SKU, size aur barcode wali file nikalein. **Excel (.xlsx)** behtar hai, kyun ke CSV mein Excel lambe barcode ko `8.9E+12` bana deta hai.
