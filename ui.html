@@ -235,12 +235,21 @@
     <div class="row" style="margin-top:0">
       <label class="chk" style="margin:0"><input type="radio" name="scnMode" value="1" checked> <b>Add (+)</b> naya maal aaya</label>
       <label class="chk" style="margin:0"><input type="radio" name="scnMode" value="-1"> <b>Minus (−)</b> maal nikla</label>
+      <label class="chk" style="margin:0"><input type="radio" name="scnMode" value="count"> <b>Ginti (actual stock)</b> jo scan ho wahi stock bane</label>
       <span style="margin-left:12px">Har scan par qty: <input type="text" id="scnQty" value="1" style="width:60px"></span>
     </div>
-    <div class="chk"><input type="checkbox" id="scnInstant" checked><span>Har scan par foran Shopify update karo (band karein to pehle list banegi, phir ek saath save)</span></div>
+    <div class="chk" id="scnInstantRow"><input type="checkbox" id="scnInstant" checked><span>Har scan par foran Shopify update karo (band karein to pehle list banegi, phir ek saath save)</span></div>
     <input type="text" id="scnInput" placeholder="Yahan click kar ke scan karein…" autocomplete="off"
       style="width:100%;font-size:22px;padding:14px;margin-top:10px;border:2px solid #0f766e;border-radius:8px">
     <div id="scnLast" style="margin-top:12px"></div>
+  </div>
+  <div class="card hide" id="scnCountCard">
+    <h2>Ginti (abhi save nahi hui)</h2>
+    <p class="hint">Har scan par us size ki ginti 1 barh jati hai. Ginti haath se bhi badal sakte hain. <b>Save</b> dabane par Shopify ka stock bilkul yehi ho jayega.</p>
+    <div class="chk"><input type="checkbox" id="cntZero" checked><span>Jis article ka koi size scan nahi hua, us size ka stock <b>0</b> kar do</span></div>
+    <div class="tbl"><table id="cntTable"></table></div>
+    <div class="row"><button class="b" id="btnCntSave">✔ Ye ginti Shopify par save karo</button><button class="b sec" id="btnCntClear">Ginti khali karo</button><span class="hint" id="cntInfo" style="margin:0"></span></div>
+    <div id="cntMsg"></div>
   </div>
   <div class="card hide" id="scnPendingCard">
     <h2>List (abhi save nahi hui)</h2>
@@ -634,7 +643,65 @@ $("#btnBarApply").onclick = async e => {
 const PENDING = new Map(); let scanBusy = Promise.resolve(), logN = 0;
 function beep(ok){ try{ const a = new (window.AudioContext||window.webkitAudioContext)(), o = a.createOscillator(), g = a.createGain();
   o.frequency.value = ok ? 880 : 220; o.type = ok ? "sine" : "square"; g.gain.value = .08; o.connect(g); g.connect(a.destination); o.start(); o.stop(a.currentTime + (ok?.12:.35)); }catch(e){} }
-function scnDelta(){ const q = Math.max(1, parseInt($("#scnQty").value,10)||1); return q * parseInt(document.querySelector('input[name=scnMode]:checked').value,10); }
+function scnModeVal(){ return document.querySelector('input[name=scnMode]:checked').value; }
+function scnDelta(){ const q = Math.max(1, parseInt($("#scnQty").value,10)||1); const m = scnModeVal(); return m==="count" ? q : q * parseInt(m,10); }
+
+// ----- Ginti (stock count) mode -----
+const COUNT = new Map();      // "SKU|SIZE" -> {sku,size,product,count,items:[{inventory_item_id,available}],current}
+const CNT_ARTICLES = new Map(); // SKU -> lookup rows (us article ke saare sizes)
+const ckey = (sku,size) => (sku||"").toUpperCase()+"|"+(size||"").toUpperCase();
+async function cntLoadArticle(sku){
+  const K = sku.toUpperCase(); if(CNT_ARTICLES.has(K)) return;
+  const j = await postJSON("/api/stock/lookup", {sku, location_id:LOC});
+  CNT_ARTICLES.set(K, j.rows.filter(r=>r.sku.toUpperCase()===K));
+}
+function cntRows(){
+  const out = [];
+  CNT_ARTICLES.forEach((rows, K) => rows.forEach(r => {
+    const k = ckey(r.sku, r.size), c = COUNT.get(k);
+    const ok = r.items.filter(i=>i.tracked && i.stocked);
+    if(c) out.push({k, sku:r.sku, size:r.size, product:r.products.join(" / "), current:r.current, count:c.count, scanned:true, items:ok, problem:r.problem});
+    else if($("#cntZero").checked) out.push({k, sku:r.sku, size:r.size, product:r.products.join(" / "), current:r.current, count:0, scanned:false, items:ok, problem:r.problem});
+  }));
+  return out;
+}
+function renderCount(){
+  const rows = cntRows();
+  $("#scnCountCard").classList.toggle("hide", !CNT_ARTICLES.size);
+  $("#cntTable").innerHTML = "<tr><th>SKU</th><th>Size</th><th>Product</th><th>Shopify abhi</th><th>Gina gaya</th><th>Farq</th><th></th></tr>" +
+    rows.map(r=>{ const d = r.count - (r.current||0);
+      return `<tr style="${r.scanned?"":"opacity:.75"}"><td>${esc(r.sku)}</td><td><b>${esc(r.size||"-")}</b></td><td>${esc(r.product)}</td><td class="num">${r.current??"–"}</td>
+      <td><input type="number" min="0" class="cntIn" data-k="${esc(r.k)}" value="${r.count}" style="width:80px" ${r.problem?"disabled":""}></td>
+      <td class="num ${d>0?"pos":d<0?"neg":""}">${d?(d>0?"+":"")+d:""}</td>
+      <td class="hint">${r.problem?esc(r.problem):(r.scanned?"":"scan nahi hua → 0")}${r.items.length>1?` · ${r.items.length} listings`:""}</td></tr>`; }).join("");
+  document.querySelectorAll(".cntIn").forEach(inp => inp.onchange = () => {
+    const k = inp.dataset.k, v = Math.max(0, parseInt(inp.value,10)||0), [sku,size] = k.split("|");
+    const cur = COUNT.get(k); if(cur) cur.count = v; else COUNT.set(k, {count:v}); renderCount(); });
+  const pcs = rows.filter(r=>r.scanned).reduce((a,r)=>a+r.count,0);
+  $("#cntInfo").textContent = `${CNT_ARTICLES.size} article · ${pcs} pieces scan hue · ${rows.filter(r=>r.count!==r.current).length} size badlenge`;
+}
+$("#cntZero").onchange = renderCount;
+window.addEventListener("beforeunload", e => { if(COUNT.size || PENDING.size){ e.preventDefault(); e.returnValue = ""; } });
+$("#btnCntClear").onclick = () => { if(!confirm("Saari ginti khali karein?")) return; COUNT.clear(); CNT_ARTICLES.clear(); renderCount(); $("#scnInput").focus(); };
+$("#btnCntSave").onclick = async e => {
+  const rows = cntRows().filter(r => !r.problem && r.count !== r.current);
+  if(!rows.length){ msg("#cntMsg","Shopify par pehle se yehi stock hai, kuch badalna nahi.","info"); return; }
+  const lines = rows.map(r=>`${r.sku} ${r.size||""}: ${r.current??0} → ${r.count}`).join("\n");
+  if(!confirm(`Shopify par ye stock set hoga:\n\n${lines}\n\nPakka?`)) return;
+  const items = []; rows.forEach(r => r.items.forEach(i => items.push({inventory_item_id:i.inventory_item_id, quantity:r.count, change_from:null})));
+  busy(e.target,true,"Save ho raha hai…");
+  try{
+    const j = await postJSON("/api/inventory/apply", {location_id:LOC, items});
+    if(j.errors.length){ msg("#cntMsg", "Kuch sizes save nahi hue:\n"+j.errors.map(x=>x.message).join("\n"), "bad"); }
+    else { msg("#cntMsg", `✔ Shopify par stock set ho gaya:\n${lines}`, "ok"); beep(true);
+      rows.forEach(r=>logRow({code:"(ginti save)", sku:r.sku, size:r.size, delta:r.count-(r.current||0), after:r.count, status:"Save ho gaya", cls:"DONE"}));
+      COUNT.clear(); CNT_ARTICLES.clear(); renderCount(); $("#scnCountCard").classList.remove("hide"); }
+  }catch(err){ msg("#cntMsg", err.message, "bad"); }
+  busy(e.target,false); $("#scnInput").focus();
+};
+document.querySelectorAll('input[name=scnMode]').forEach(r => r.onchange = () => {
+  const c = scnModeVal()==="count"; $("#scnInstantRow").classList.toggle("hide", c);
+  if(c){ $("#scnCountCard").classList.toggle("hide", !CNT_ARTICLES.size); } $("#scnInput").focus(); });
 function logRow(o){
   const id = "lg"+(++logN), t = new Date().toLocaleTimeString();
   const tr = document.createElement("tr"); tr.id = id;
@@ -658,6 +725,7 @@ function renderPending(){
   document.querySelectorAll(".pdDel").forEach(b=>b.onclick=()=>{ PENDING.delete(b.dataset.k); renderPending(); $("#scnInput").focus(); });
 }
 async function doScan(code){
+  if(scnModeVal()==="count") return doCountScan(code);
   const delta = scnDelta(), instant = $("#scnInstant").checked;
   try{
     const j = await postJSON("/api/scan", {code, location_id:LOC, delta, apply:instant});
@@ -673,6 +741,19 @@ async function doScan(code){
       alertBox(`➕ List mein: ${g.sku} · ${g.size||"-"}  (${p.delta>0?"+":""}${p.delta})`, true);
       logRow({code, sku:g.sku, size:g.size, delta, status:"List mein", cls:"UPDATE"});
     }
+  }catch(err){ beep(false); alertBox(err.message); logRow({code, status:"Error", cls:"ERROR"}); }
+}
+async function doCountScan(code){
+  const n = scnDelta();
+  try{
+    const j = await postJSON("/api/scan", {code, location_id:LOC, delta:0, apply:false});
+    if(!j.found){ beep(false); alertBox(j.error || `❌ "${code}" kisi product par nahi mila`); logRow({code, status:"Nahi mila", cls:"ERROR"}); return; }
+    const g = j.group;
+    await cntLoadArticle(g.sku);
+    const k = ckey(g.sku, g.size), c = COUNT.get(k) || {count:0}; c.count += n; COUNT.set(k, c);
+    renderCount(); beep(true);
+    alertBox(`✔ ${g.sku} · ${g.size||"-"}  →  ginti ${c.count}   (Shopify abhi: ${g.available??"–"})`, true);
+    logRow({code, sku:g.sku, size:g.size, delta:n, after:c.count, status:"Ginti", cls:"UPDATE"});
   }catch(err){ beep(false); alertBox(err.message); logRow({code, status:"Error", cls:"ERROR"}); }
 }
 $("#scnInput").onkeydown = e => {
