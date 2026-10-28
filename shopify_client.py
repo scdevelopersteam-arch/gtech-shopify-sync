@@ -109,7 +109,10 @@ class Shopify:
     # ---------- shop / locations ----------
     def shop_info(self):
         d = self.gql("{ shop { name myshopifyDomain currencyCode ianaTimezone } "
-                     "locations(first: 50) { nodes { id name isActive } } }")
+                     "locations(first: 50) { nodes { id name isActive } } "
+                     "currentAppInstallation { accessScopes { handle } } }")
+        scopes = [x["handle"] for x in ((d.get("currentAppInstallation") or {}).get("accessScopes") or [])]
+        d["shop"]["scopes"] = scopes
         return d["shop"], [l for l in d["locations"]["nodes"] if l["isActive"]]
 
     # ---------- variants ----------

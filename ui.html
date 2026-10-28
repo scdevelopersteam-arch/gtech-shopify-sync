@@ -333,7 +333,14 @@ async function loadLocations(showMsg){
     if(saved && j.locations.some(l=>l.id===saved)) $("#sLoc").value = saved;
     LOC = $("#sLoc").value; store.set("gtech_loc", LOC);
     $("#hdrShop").textContent = `${j.shop.name} · ${CFG.store} · Location: ${$("#sLoc").selectedOptions[0]?.text||"-"}`;
-    if(showMsg) msg("#setMsg", `✔ Connected: ${j.shop.name} (${j.shop.currencyCode})`, "ok");
+    const NEED = {read_products:"Products parhna", write_products:"Barcodes lagana", read_inventory:"Stock parhna", write_inventory:"Stock update",
+      read_locations:"Locations", read_orders:"Orders", write_orders:"Export tag", read_all_orders:"60 din se purane orders"};
+    const have = new Set(j.shop.scopes||[]);
+    const missing = Object.keys(NEED).filter(k => !have.has(k) && !(k.startsWith("read_") && have.has("write_"+k.slice(5))));
+    if(missing.length) msg("#setMsg", `✔ Connected: ${j.shop.name}\n\n⚠ Shopify app ke paas ye permissions NAHI hain:\n` +
+      missing.map(k=>`• ${k}  (${NEED[k]})`).join("\n") +
+      `\n\nHal: dev.shopify.com → app → naya version → in scopes ko add karein → Release → Shopify Admin mein app kholein aur approve karein.\n\nApp ke paas abhi ye hain: ${[...have].join(", ")}`, "bad");
+    else if(showMsg) msg("#setMsg", `✔ Connected: ${j.shop.name} (${j.shop.currencyCode})\nSaari zaroori permissions maujood hain.`, "ok");
   }catch(e){
     $("#hdrShop").textContent = "Shopify connect nahi hua — Settings dekhein";
     msg("#setMsg", e.message, "bad");
